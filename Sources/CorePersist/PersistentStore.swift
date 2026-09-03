@@ -1,0 +1,289 @@
+import CoreData
+import Foundation
+
+/// A ready-to-use Core Data stack with a type-safe query API.
+///
+/// Create one store at app launch and share it through SwiftUI:
+///
+/// ```swift
+/// @main
+/// struct NotesApp: App {
+///     @State private var store = PersistentStore.load(modelName: "Notes")
+///
+///     var body: some Scene {
+///         WindowGroup {
+///             ContentView()
+///                 .persistentStore(store)
+///         }
+///     }
+/// }
+/// ```
+@MainActor
+public final class PersistentStore {
+    public let container: NSPersistentContainer
+    public let configuration: Configuration
+    public let modelName: String
+
+    public var viewContext: NSManagedObjectContext {
+        container.viewContext
+    }
+
+    /// Loads a `.xcdatamodeld` compiled model from a bundle.
+    public convenience init(
+        modelName: String,
+        bundle: Bundle = .main,
+        configuration: Configuration = .default
+    ) throws {
+        let model = try Self.loadModel(named: modelName, in: bundle)
+        try self.init(modelName: modelName, model: model, configuration: configuration)
+    }
+
+    /// Builds a stack from an already loaded `NSManagedObjectModel`.
+    public init(
+        modelName: String,
+        model: NSManagedObjectModel,
+        configuration: Configuration = .default
+    ) throws {
+        self.modelName = modelName
+        self.configuration = configuration
+
+        if configuration.usesCloudKit {
+            container = NSPersistentCloudKitContainer(name: modelName, managedObjectModel: model)
+        } else {
+            container = NSPersistentContainer(name: modelName, managedObjectModel: model)
+        }
+
+        let description = try Self.makeStoreDescription(
+            modelName: modelName,
+            configuration: configuration
+        )
+        container.persistentStoreDescriptions = [description]
+        try Self.loadStores(on: container, configuration: configuration)
+        Self.configureViewContext(container.viewContext, configuration: configuration)
+    }
+
+    /// Convenience loader for `App` entry points. Traps with a clear message if setup fails.
+    public static func load(
+        modelName: String,
+        bundle: Bundle = .main,
+        configuration: Configuration = .default
+    ) -> PersistentStore {
+        do {
+            return try PersistentStore(
+                modelName: modelName,
+                bundle: bundle,
+                configuration: configuration
+            )
+        } catch {
+            fatalError("CorePersist failed to load model '\(modelName)': \(error)")
+        }
+    }
+
+    /// In-memory store, optionally prefilled for SwiftUI previews.
+    public static func preview(
+        modelName: String,
+        bundle: Bundle = .main,
+        populate: ((NSManagedObjectContext) throws -> Void)? = nil
+    ) -> PersistentStore {
+        do {
+            let store = try PersistentStore(
+                modelName: modelName,
+                bundle: bundle,
+                configuration: .preview
+            )
+            if let populate {
+                try populate(store.viewContext)
+                try store.save()
+            }
+            return store
+        } catch {
+            fatalError("CorePersist preview store failed: \(error)")
+        }
+    }
+
+    /// Saves the view context when it has changes.
+    public func save() throws {
+        guard viewContext.hasChanges else { return }
+        try viewContext.save()
+    }
+
+    /// Discards unsaved view-context changes.
+    public func rollback() {
+        viewContext.rollback()
+    }
+
+    /// Creates a new private-queue context parented to the persistent store coordinator.
+    public func newBackgroundContext() -> NSManagedObjectContext {
+        let context = container.newBackgroundContext()
+        context.mergePolicy = configuration.mergePolicy.nsPolicy
+        context.automaticallyMergesChangesFromParent = true
+        context.transactionAuthor = configuration.transactionAuthor
+        return context
+    }
+
+    /// Runs work on a private background context and saves if there are changes.
+    ///
+    /// Return `NSManagedObjectID` or value types from `work`. Do not hop managed objects across queues.
+    @discardableResult
+    public func performBackground<T: Sendable>(
+        save: Bool = true,
+        _ work: @escaping @Sendable (NSManagedObjectContext) throws -> T
+    ) async throws -> T {
+        let mergeKind = configuration.mergePolicy
+        let author = configuration.transactionAuthor
+        let container = self.container
+        return try await withCheckedThrowingContinuation { continuation in
+            container.performBackgroundTask { context in
+                context.mergePolicy = mergeKind.nsPolicy
+                context.automaticallyMergesChangesFromParent = true
+                context.transactionAuthor = author
+                do {
+                    let result = try work(context)
+                    if save, context.hasChanges {
+                        try context.save()
+                    }
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Deletes every persistent store and loads a fresh one. Useful for logout / reset.
+    public func destroyAndReload() throws {
+        for store in container.persistentStoreCoordinator.persistentStores {
+            let url = store.url
+            try container.persistentStoreCoordinator.remove(store)
+            if let url, store.type != NSInMemoryStoreType {
+                try container.persistentStoreCoordinator.destroyPersistentStore(
+                    at: url,
+                    ofType: store.type,
+                    options: nil
+                )
+            }
+        }
+
+        let description = try Self.makeStoreDescription(
+            modelName: modelName,
+            configuration: configuration
+        )
+        container.persistentStoreDescriptions = [description]
+        try Self.loadStores(on: container, configuration: configuration)
+        viewContext.reset()
+        Self.configureViewContext(viewContext, configuration: configuration)
+    }
+}
+
+extension PersistentStore {
+    static func loadModel(named name: String, in bundle: Bundle) throws -> NSManagedObjectModel {
+        if let url = bundle.url(forResource: name, withExtension: "momd")
+            ?? bundle.url(forResource: name, withExtension: "mom"),
+           let model = NSManagedObjectModel(contentsOf: url) {
+            return model
+        }
+
+        throw PersistenceError.modelNotFound(name)
+    }
+
+    static func makeStoreDescription(
+        modelName: String,
+        configuration: Configuration
+    ) throws -> NSPersistentStoreDescription {
+        let description = NSPersistentStoreDescription()
+        description.shouldMigrateStoreAutomatically = configuration.automaticallyMigratesStore
+        description.shouldInferMappingModelAutomatically = configuration.infersMappingModel
+
+        if configuration.inMemory {
+            description.type = NSInMemoryStoreType
+            description.url = URL(fileURLWithPath: "/dev/null")
+        } else {
+            description.type = NSSQLiteStoreType
+            description.url = try storeURL(modelName: modelName, configuration: configuration)
+        }
+
+        if configuration.usesHistoryTracking {
+            description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        }
+
+        if configuration.usesRemoteChangeNotifications {
+            description.setOption(
+                true as NSNumber,
+                forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey
+            )
+        }
+
+        if let identifier = configuration.cloudKitContainerIdentifier {
+            description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
+                containerIdentifier: identifier
+            )
+        }
+
+        return description
+    }
+
+    static func storeURL(modelName: String, configuration: Configuration) throws -> URL {
+        let fileName = configuration.storeName ?? "\(modelName).sqlite"
+
+        if let group = configuration.appGroupIdentifier {
+            guard let containerURL = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: group
+            ) else {
+                throw PersistenceError.storeURLUnavailable
+            }
+            return containerURL.appendingPathComponent(fileName)
+        }
+
+        let folder = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return folder.appendingPathComponent(fileName)
+    }
+
+    static func loadStores(
+        on container: NSPersistentContainer,
+        configuration: Configuration
+    ) throws {
+        var capturedError: (any Error)?
+
+        container.loadPersistentStores { _, error in
+            capturedError = error
+        }
+
+        if let capturedError {
+            if configuration.destroysStoreOnFailedRecovery,
+               let url = container.persistentStoreDescriptions.first?.url,
+               !configuration.inMemory {
+                try? FileManager.default.removeItem(at: url)
+                let shm = URL(fileURLWithPath: url.path + "-shm")
+                let wal = URL(fileURLWithPath: url.path + "-wal")
+                try? FileManager.default.removeItem(at: shm)
+                try? FileManager.default.removeItem(at: wal)
+
+                var retryError: (any Error)?
+                container.loadPersistentStores { _, error in
+                    retryError = error
+                }
+                if let retryError {
+                    throw PersistenceError.loadFailed(retryError.localizedDescription)
+                }
+            } else {
+                throw PersistenceError.loadFailed(capturedError.localizedDescription)
+            }
+        }
+    }
+
+    static func configureViewContext(
+        _ context: NSManagedObjectContext,
+        configuration: Configuration
+    ) {
+        context.automaticallyMergesChangesFromParent = true
+        context.mergePolicy = configuration.mergePolicy.nsPolicy
+        context.shouldDeleteInaccessibleFaults = true
+        context.transactionAuthor = configuration.transactionAuthor
+        context.name = "CorePersist.viewContext"
+    }
+}
