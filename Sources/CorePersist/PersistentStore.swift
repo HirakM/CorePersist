@@ -139,39 +139,40 @@ public final class PersistentStore {
 
         let mergeKind = configuration.mergePolicy
         let author = configuration.transactionAuthor
-        let inMemory = configuration.inMemory
         let container = self.container
-        let viewContext = self.viewContext
 
-        let outcome: (T, ContextChangeSet) = try await withCheckedThrowingContinuation { continuation in
+        return try await Self.runBackground(
+            on: container,
+            mergeKind: mergeKind,
+            author: author,
+            save: save,
+            work: work
+        )
+    }
+
+    nonisolated static func runBackground<T: Sendable>(
+        on container: NSPersistentContainer,
+        mergeKind: Configuration.MergePolicy,
+        author: String?,
+        save: Bool,
+        work: @escaping @Sendable (NSManagedObjectContext) throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
             container.performBackgroundTask { context in
                 context.mergePolicy = mergeKind.nsPolicy
                 context.automaticallyMergesChangesFromParent = true
                 context.transactionAuthor = author
                 do {
                     let result = try work(context)
-                    var changes = ContextChangeSet()
                     if save, context.hasChanges {
-                        if !inMemory {
-                            try context.obtainPermanentIDs(for: Array(context.insertedObjects))
-                        }
-                        changes = ContextChangeSet(context: context)
                         try context.save()
                     }
-                    continuation.resume(returning: (result, changes))
+                    continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
-
-        if !inMemory, !outcome.1.isEmpty {
-            NSManagedObjectContext.mergeChanges(
-                fromRemoteContextSave: outcome.1.userInfo,
-                into: [viewContext]
-            )
-        }
-        return outcome.0
     }
 
     /// Deletes every persistent store and loads a fresh one. Useful for logout / reset.
@@ -329,31 +330,5 @@ extension PersistentStore {
         context.shouldDeleteInaccessibleFaults = true
         context.transactionAuthor = configuration.transactionAuthor
         context.name = "CorePersist.viewContext"
-    }
-}
-
-private struct ContextChangeSet: Sendable {
-    var inserted: [NSManagedObjectID] = []
-    var updated: [NSManagedObjectID] = []
-    var deleted: [NSManagedObjectID] = []
-
-    init() {}
-
-    init(context: NSManagedObjectContext) {
-        inserted = context.insertedObjects.map(\.objectID)
-        updated = context.updatedObjects.map(\.objectID)
-        deleted = context.deletedObjects.map(\.objectID)
-    }
-
-    var isEmpty: Bool {
-        inserted.isEmpty && updated.isEmpty && deleted.isEmpty
-    }
-
-    var userInfo: [AnyHashable: Any] {
-        [
-            NSInsertedObjectsKey: inserted,
-            NSUpdatedObjectsKey: updated,
-            NSDeletedObjectsKey: deleted
-        ]
     }
 }

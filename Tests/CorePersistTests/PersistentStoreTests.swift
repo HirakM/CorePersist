@@ -151,6 +151,7 @@ struct PersistentStoreTests {
             note.title = "Background"
             note.createdAt = Date()
             note.views = 9
+            try context.obtainPermanentIDs(for: [note])
             return note.objectID
         }
         let note = try store.object(CPNote.self, id: objectID)
