@@ -30,6 +30,9 @@ public final class ObservedQuery<Entity: NSManagedObject> {
     private let proxy: DelegateProxy
 
     public init(query: Query<Entity>, context: NSManagedObjectContext, sectionNameKeyPath: String? = nil) throws {
+        guard context.concurrencyType == .mainQueueConcurrencyType else {
+            throw PersistenceError.requiresMainQueueContext
+        }
         guard !query.sortDescriptors.isEmpty else {
             throw PersistenceError.missingSortDescriptors
         }
@@ -68,7 +71,12 @@ extension ObservedQuery {
         weak var owner: ObservedQuery?
 
         func controllerDidChangeContent(_ controller: NSFetchedResultsController<any NSFetchRequestResult>) {
-            owner?.objects = (controller.fetchedObjects as? [Entity]) ?? []
+            let objects = (controller.fetchedObjects as? [Entity]) ?? []
+            precondition(
+                Thread.isMainThread,
+                "ObservedQuery received an FRC update off the main queue."
+            )
+            owner?.objects = objects
         }
     }
 }

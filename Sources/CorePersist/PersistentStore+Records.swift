@@ -36,6 +36,9 @@ extension PersistentStore {
     }
 
     /// Returns an existing object or creates one, then runs `configure`.
+    ///
+    /// This is serialized on the view context (main actor). It is not unique across
+    /// processes or background contexts — add a Core Data unique constraint for that.
     @discardableResult
     public func findOrCreate<Entity: NSManagedObject>(
         _ type: Entity.Type,
@@ -55,7 +58,9 @@ extension PersistentStore {
         _ type: Entity.Type,
         id: NSManagedObjectID
     ) throws -> Entity {
-        let object = try viewContext.existingObject(with: id)
+        // `object(with:)` returns a fault and does not require the object to already
+        // be registered, which avoids a race after a background save.
+        let object = viewContext.object(with: id)
         guard let typed = object as? Entity else {
             throw PersistenceError.invalidObjectType(expected: String(describing: Entity.self))
         }
@@ -70,11 +75,17 @@ extension PersistentStore {
     }
 
     public func delete(_ object: NSManagedObject) {
-        viewContext.delete(object)
+        let target: NSManagedObject
+        if object.managedObjectContext === viewContext {
+            target = object
+        } else {
+            target = viewContext.object(with: object.objectID)
+        }
+        viewContext.delete(target)
     }
 
     public func delete<Entity: NSManagedObject>(_ objects: [Entity]) {
-        objects.forEach(viewContext.delete)
+        objects.forEach(delete)
     }
 
     /// Deletes matching objects through the view context. Prefer ``batchDelete`` for large sets.

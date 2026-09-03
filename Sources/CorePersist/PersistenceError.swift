@@ -10,6 +10,8 @@ public enum PersistenceError: Error, Equatable, LocalizedError, Sendable {
     case invalidObjectType(expected: String)
     case missingSortDescriptors
     case batchFailed(String)
+    case storeBusy
+    case requiresMainQueueContext
 
     public var errorDescription: String? {
         switch self {
@@ -27,6 +29,10 @@ public enum PersistenceError: Error, Equatable, LocalizedError, Sendable {
             "NSFetchedResultsController requires at least one sort descriptor."
         case .batchFailed(let message):
             "Batch operation failed: \(message)"
+        case .storeBusy:
+            "The store is busy with background work and cannot be reset."
+        case .requiresMainQueueContext:
+            "ObservedQuery must be created with a main-queue context (the view context)."
         }
     }
 }

@@ -57,11 +57,16 @@ extension PersistentStore {
         objects: [[String: Any]]
     ) async throws -> Bool {
         let payload = SendableBox(value: objects)
-        return try await performBackground { context in
+        let objectIDs: [NSManagedObjectID] = try await performBackground { context in
             let request = NSBatchInsertRequest(entityName: type.corePersistEntityName, objects: payload.value)
-            request.resultType = .statusOnly
+            request.resultType = .objectIDs
             let result = try context.execute(request) as? NSBatchInsertResult
-            return (result?.result as? Bool) ?? false
+            return result?.result as? [NSManagedObjectID] ?? []
         }
+        NSManagedObjectContext.mergeChanges(
+            fromRemoteContextSave: [NSInsertedObjectsKey: objectIDs],
+            into: [viewContext]
+        )
+        return !objectIDs.isEmpty || objects.isEmpty
     }
 }

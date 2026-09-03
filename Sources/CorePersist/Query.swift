@@ -12,15 +12,15 @@ import Foundation
 /// let notes = try recent.execute(in: context)
 /// ```
 public struct Query<Entity: NSManagedObject>: @unchecked Sendable {
-    public var predicate: NSPredicate?
-    public var sortDescriptors: [NSSortDescriptor] = []
-    public var fetchLimit: Int = 0
-    public var fetchOffset: Int = 0
-    public var returnsObjectsAsFaults: Bool = true
-    public var includesPendingChanges: Bool = true
-    public var relationshipKeyPathsForPrefetching: [String] = []
-    public var propertiesToFetch: [String]?
-    public var resultType: NSFetchRequestResultType = .managedObjectResultType
+    public private(set) var predicate: NSPredicate?
+    public private(set) var sortDescriptors: [NSSortDescriptor] = []
+    public private(set) var fetchLimit: Int = 0
+    public private(set) var fetchOffset: Int = 0
+    public private(set) var returnsObjectsAsFaults: Bool = true
+    public private(set) var includesPendingChanges: Bool = true
+    public private(set) var relationshipKeyPathsForPrefetching: [String] = []
+    public private(set) var propertiesToFetch: [String]?
+    public private(set) var resultType: NSFetchRequestResultType = .managedObjectResultType
 
     public init(_ type: Entity.Type = Entity.self) {}
 
@@ -90,6 +90,7 @@ public struct Query<Entity: NSManagedObject>: @unchecked Sendable {
         return copy
     }
 
+    /// Builds an `NSFetchRequest` for this query. The request is not executed.
     public func fetchRequest() -> NSFetchRequest<Entity> {
         let request = NSFetchRequest<Entity>(entityName: Entity.corePersistEntityName)
         request.predicate = predicate
@@ -104,6 +105,8 @@ public struct Query<Entity: NSManagedObject>: @unchecked Sendable {
         return request
     }
 
+    /// Executes on `context`. You must already be on that context's queue
+    /// (`@MainActor` for the view context, or inside `perform` / ``PersistentStore/performBackground``).
     public func execute(in context: NSManagedObjectContext) throws -> [Entity] {
         try context.fetch(fetchRequest())
     }

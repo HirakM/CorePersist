@@ -225,7 +225,16 @@ results.objects  // updates as the context changes
 
 ## Concurrency
 
-`PersistentStore` is `@MainActor`. View-context reads and writes belong on the main actor. Background work goes through `performBackground` and talks to the main context with `NSManagedObjectID`.
+`PersistentStore` is `@MainActor`. That is the thread-safety model:
+
+- View-context reads and writes (`fetch`, `create`, `save`, `delete`) only run on the main actor.
+- Background work goes through `performBackground`. Return `NSManagedObjectID` or value types — never the managed object.
+- After a background save, changes are merged into the view context before `performBackground` returns, so a following `store.object(_:id:)` does not race.
+- `destroyAndReload()` throws `PersistenceError.storeBusy` if background work is still running.
+- `ObservedQuery` only accepts the main-queue view context.
+- `Query.execute(in:)` does not hop threads. Use the context you are already on.
+
+Do not use a managed object on a different queue than the context that owns it. That is a Core Data rule this package cannot fully police if you grab `viewContext` or `newBackgroundContext()` and call Core Data APIs yourself.
 
 ## Requirements
 

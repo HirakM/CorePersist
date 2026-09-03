@@ -24,6 +24,8 @@ public final class PersistentStore {
     public let configuration: Configuration
     public let modelName: String
 
+    private var activeBackgroundTasks = 0
+
     public var viewContext: NSManagedObjectContext {
         container.viewContext
     }
@@ -113,6 +115,9 @@ public final class PersistentStore {
     }
 
     /// Creates a new private-queue context parented to the persistent store coordinator.
+    ///
+    /// Access it only with `context.perform` / `performAndWait`. Prefer ``performBackground`` so
+    /// saves are merged back onto the view context on the correct queue.
     public func newBackgroundContext() -> NSManagedObjectContext {
         let context = container.newBackgroundContext()
         context.mergePolicy = configuration.mergePolicy.nsPolicy
@@ -129,6 +134,9 @@ public final class PersistentStore {
         save: Bool = true,
         _ work: @escaping @Sendable (NSManagedObjectContext) throws -> T
     ) async throws -> T {
+        activeBackgroundTasks += 1
+        defer { activeBackgroundTasks -= 1 }
+
         let mergeKind = configuration.mergePolicy
         let author = configuration.transactionAuthor
         let container = self.container
@@ -140,7 +148,19 @@ public final class PersistentStore {
                 do {
                     let result = try work(context)
                     if save, context.hasChanges {
+                        try context.obtainPermanentIDs(for: Array(context.insertedObjects))
+                        let changes: [AnyHashable: Any] = [
+                            NSInsertedObjectsKey: Array(context.insertedObjects.map(\.objectID)),
+                            NSUpdatedObjectsKey: Array(context.updatedObjects.map(\.objectID)),
+                            NSDeletedObjectsKey: Array(context.deletedObjects.map(\.objectID))
+                        ]
                         try context.save()
+                        // mergeChanges is thread-safe; doing it here avoids a race where
+                        // the caller resumes on the main actor before the auto-merge runs.
+                        NSManagedObjectContext.mergeChanges(
+                            fromRemoteContextSave: changes,
+                            into: [container.viewContext]
+                        )
                     }
                     continuation.resume(returning: result)
                 } catch {
@@ -152,6 +172,10 @@ public final class PersistentStore {
 
     /// Deletes every persistent store and loads a fresh one. Useful for logout / reset.
     public func destroyAndReload() throws {
+        guard activeBackgroundTasks == 0 else {
+            throw PersistenceError.storeBusy
+        }
+
         for store in container.persistentStoreCoordinator.persistentStores {
             let url = store.url
             try container.persistentStoreCoordinator.remove(store)
@@ -247,13 +271,9 @@ extension PersistentStore {
         on container: NSPersistentContainer,
         configuration: Configuration
     ) throws {
-        var capturedError: (any Error)?
-
-        container.loadPersistentStores { _, error in
-            capturedError = error
-        }
-
-        if let capturedError {
+        do {
+            try waitForPersistentStores(on: container)
+        } catch {
             if configuration.destroysStoreOnFailedRecovery,
                let url = container.persistentStoreDescriptions.first?.url,
                !configuration.inMemory {
@@ -262,17 +282,32 @@ extension PersistentStore {
                 let wal = URL(fileURLWithPath: url.path + "-wal")
                 try? FileManager.default.removeItem(at: shm)
                 try? FileManager.default.removeItem(at: wal)
-
-                var retryError: (any Error)?
-                container.loadPersistentStores { _, error in
-                    retryError = error
-                }
-                if let retryError {
-                    throw PersistenceError.loadFailed(retryError.localizedDescription)
-                }
+                try waitForPersistentStores(on: container)
             } else {
-                throw PersistenceError.loadFailed(capturedError.localizedDescription)
+                throw error
             }
+        }
+    }
+
+    /// `loadPersistentStores` invokes its handler on a background queue and may return
+    /// before the store is ready. Waiting here makes init actually sequential.
+    static func waitForPersistentStores(on container: NSPersistentContainer) throws {
+        let lock = NSLock()
+        let done = DispatchSemaphore(value: 0)
+        var capturedError: (any Error)?
+
+        container.loadPersistentStores { _, error in
+            lock.lock()
+            capturedError = error
+            lock.unlock()
+            done.signal()
+        }
+        done.wait()
+
+        lock.lock()
+        defer { lock.unlock() }
+        if let capturedError {
+            throw PersistenceError.loadFailed(capturedError.localizedDescription)
         }
     }
 
@@ -285,5 +320,7 @@ extension PersistentStore {
         context.shouldDeleteInaccessibleFaults = true
         context.transactionAuthor = configuration.transactionAuthor
         context.name = "CorePersist.viewContext"
+        // NSPersistentContainer binds this context to the main queue. All
+        // PersistentStore CRUD APIs are @MainActor so they stay on that queue.
     }
 }
