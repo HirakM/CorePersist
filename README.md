@@ -2,7 +2,7 @@
 
 A small Core Data stack for Swift apps. One object to load the store, query with `KeyPath`s instead of predicate strings, and the usual extras that every iOS project rewrites: SwiftUI, CloudKit, App Groups, background saves, and in-memory previews.
 
-[![CI](https://github.com/HirakM/CorePersist/actions/workflows/ci.yml/badge.svg)](https://github.com/HirakM/CorePersist/actions/workflows/ci.yml)
+[![CI](https://github.com/HirakM/CorePersist/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HirakM/CorePersist/actions/workflows/ci.yml)
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138.svg)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/Platforms-iOS%2017%20|%20macOS%2014%20|%20tvOS%2017%20|%20watchOS%2010%20|%20visionOS-blue)](Package.swift)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
