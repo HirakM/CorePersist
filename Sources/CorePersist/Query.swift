@@ -54,7 +54,9 @@ public struct Query<Entity: NSManagedObject>: @unchecked Sendable {
 
     public func sorted<Value>(by keyPath: KeyPath<Entity, Value>, ascending: Bool = true) -> Query {
         var copy = self
-        copy.sortDescriptors.append(NSSortDescriptor(keyPath: keyPath, ascending: ascending))
+        copy.sortDescriptors.append(
+            NSSortDescriptor(key: coreDataKey(keyPath), ascending: ascending)
+        )
         return copy
     }
 
@@ -128,6 +130,17 @@ public struct Query<Entity: NSManagedObject>: @unchecked Sendable {
         }
         return copy
     }
+}
+
+func coreDataKey<Root, Value>(_ keyPath: KeyPath<Root, Value>) -> String {
+    if let key = keyPath._kvcKeyPathString, !key.isEmpty {
+        return key
+    }
+    let expressionKey = NSExpression(forKeyPath: keyPath).keyPath
+    if !expressionKey.isEmpty {
+        return expressionKey
+    }
+    return String(describing: keyPath).split(separator: ".").last.map(String.init) ?? "objectID"
 }
 
 extension NSManagedObject {

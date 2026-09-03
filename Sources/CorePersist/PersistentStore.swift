@@ -139,6 +139,7 @@ public final class PersistentStore {
 
         let mergeKind = configuration.mergePolicy
         let author = configuration.transactionAuthor
+        let inMemory = configuration.inMemory
         let container = self.container
         let viewContext = self.viewContext
 
@@ -151,7 +152,9 @@ public final class PersistentStore {
                     let result = try work(context)
                     var changes = ContextChangeSet()
                     if save, context.hasChanges {
-                        try context.obtainPermanentIDs(for: Array(context.insertedObjects))
+                        if !inMemory {
+                            try context.obtainPermanentIDs(for: Array(context.insertedObjects))
+                        }
                         changes = ContextChangeSet(context: context)
                         try context.save()
                     }
@@ -162,7 +165,7 @@ public final class PersistentStore {
             }
         }
 
-        if !outcome.1.isEmpty {
+        if !inMemory, !outcome.1.isEmpty {
             NSManagedObjectContext.mergeChanges(
                 fromRemoteContextSave: outcome.1.userInfo,
                 into: [viewContext]
