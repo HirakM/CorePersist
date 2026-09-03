@@ -54,9 +54,7 @@ public struct Query<Entity: NSManagedObject>: @unchecked Sendable {
 
     public func sorted<Value>(by keyPath: KeyPath<Entity, Value>, ascending: Bool = true) -> Query {
         var copy = self
-        copy.sortDescriptors.append(
-            NSSortDescriptor(key: NSExpression(forKeyPath: keyPath).keyPath, ascending: ascending)
-        )
+        copy.sortDescriptors.append(NSSortDescriptor(keyPath: keyPath, ascending: ascending))
         return copy
     }
 

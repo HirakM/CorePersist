@@ -258,6 +258,11 @@ extension PersistentStore {
             return containerURL.appendingPathComponent(fileName)
         }
 
+        if let directory = configuration.storeDirectory {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            return directory.appendingPathComponent(fileName)
+        }
+
         let folder = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,

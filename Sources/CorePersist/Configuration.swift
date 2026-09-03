@@ -9,6 +9,9 @@ public struct Configuration: Sendable, Equatable {
     /// File name without path, for example `"MyApp.sqlite"`. Defaults to `"<modelName>.sqlite"`.
     public var storeName: String?
 
+    /// Directory for the SQLite file. Defaults to Application Support.
+    public var storeDirectory: URL?
+
     /// App Group identifier so the store can be shared with extensions and widgets.
     public var appGroupIdentifier: String?
 
@@ -39,6 +42,7 @@ public struct Configuration: Sendable, Equatable {
     public init(
         inMemory: Bool = false,
         storeName: String? = nil,
+        storeDirectory: URL? = nil,
         appGroupIdentifier: String? = nil,
         cloudKitContainerIdentifier: String? = nil,
         automaticallyMigratesStore: Bool = true,
@@ -51,6 +55,7 @@ public struct Configuration: Sendable, Equatable {
     ) {
         self.inMemory = inMemory
         self.storeName = storeName
+        self.storeDirectory = storeDirectory
         self.appGroupIdentifier = appGroupIdentifier
         self.cloudKitContainerIdentifier = cloudKitContainerIdentifier
         self.automaticallyMigratesStore = automaticallyMigratesStore

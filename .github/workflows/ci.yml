@@ -16,4 +16,12 @@ jobs:
       - name: Build
         run: swift build
       - name: Test
-        run: swift test --parallel
+        run: swift test
+      - name: Build example app
+        run: |
+          xcodebuild \
+            -project Examples/NotesApp/NotesApp.xcodeproj \
+            -scheme NotesApp \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build

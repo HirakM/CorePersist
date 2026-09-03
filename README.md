@@ -34,6 +34,10 @@ Add the package in Xcode (**File → Add Package Dependencies…**) or in `Packa
 
 Minimum platforms: iOS 17, macOS 14, tvOS 17, watchOS 10, visionOS 1.
 
+## Example app
+
+Clone the repo and open `Examples/NotesApp/NotesApp.xcodeproj` in Xcode, then run the **NotesApp** scheme on a simulator. It is a small notes list that uses `PersistentStore.load`, `.persistentStore(_:)`, `create`, `save`, and `delete`.
+
 ## Quick start
 
 ```swift
@@ -212,6 +216,7 @@ results.objects  // updates as the context changes
 | --- | --- | --- |
 | `inMemory` | `false` | Tests and previews |
 | `storeName` | `"<model>.sqlite"` | File name |
+| `storeDirectory` | Application Support | Custom on-disk folder |
 | `appGroupIdentifier` | `nil` | Share with extensions |
 | `cloudKitContainerIdentifier` | `nil` | `NSPersistentCloudKitContainer` |
 | `automaticallyMigratesStore` | `true` | Lightweight migration |
