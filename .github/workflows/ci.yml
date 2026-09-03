@@ -16,7 +16,7 @@ jobs:
       - name: Build
         run: swift build
       - name: Test
-        run: swift test
+        run: swift test --no-parallel
       - name: Build example app
         run: |
           xcodebuild \

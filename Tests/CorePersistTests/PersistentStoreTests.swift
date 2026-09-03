@@ -2,7 +2,7 @@ import CoreData
 import Testing
 @testable import CorePersist
 
-@Suite
+@Suite(.serialized)
 @MainActor
 struct PersistentStoreTests {
     private func makeStore() throws -> PersistentStore {
