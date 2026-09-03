@@ -132,9 +132,10 @@ struct PersistentStoreTests {
     func limitOffsetAndSort() throws {
         let store = try makeStore()
         try insertNotes(into: store)
+        try store.save()
         let page = try store.fetch(
             Query(CPNote.self)
-                .sorted(by: \.title)
+                .sorted(by: [NSSortDescriptor(key: "title", ascending: true)])
                 .offset(1)
                 .limit(1)
         )
@@ -143,7 +144,8 @@ struct PersistentStoreTests {
 
     @Test
     func backgroundInsertReturnsObjectID() async throws {
-        let store = try makeStore()
+        let (store, directory) = try makeSQLiteStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
         let objectID = try await store.performBackground { context in
             let note = CPNote(context: context)
             note.title = "Background"
@@ -182,6 +184,15 @@ struct PersistentStoreTests {
         #expect(updated == 1)
         let pinned = try store.first(Query(CPNote.self).where(\.title == "Pinned"))
         #expect(pinned?.views == 100)
+    }
+
+    @Test
+    func keyPathSort() throws {
+        let store = try makeStore()
+        try insertNotes(into: store)
+        try store.save()
+        let titles = try store.fetch(Query(CPNote.self).sorted(by: \.title)).map(\.title)
+        #expect(titles == ["Draft", "Inbox", "Pinned"])
     }
 
     @Test
