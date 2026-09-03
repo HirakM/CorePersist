@@ -2,29 +2,52 @@ import CoreData
 import XCTest
 @testable import CorePersist
 
+@MainActor
+private func makeStore() throws -> PersistentStore {
+    try PersistentStore(
+        modelName: "CorePersistTests",
+        model: TestModel.make(),
+        configuration: .preview
+    )
+}
+
+@MainActor
+private func makeSQLiteStore() throws -> (PersistentStore, URL) {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("CorePersistTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let store = try PersistentStore(
+        modelName: "CorePersistTests",
+        model: TestModel.make(),
+        configuration: Configuration(storeName: "notes.sqlite", storeDirectory: directory)
+    )
+    return (store, directory)
+}
+
+@MainActor
+private func insertNotes(into store: PersistentStore) throws {
+    try store.create(CPNote.self) { note in
+        note.title = "Pinned"
+        note.createdAt = Date(timeIntervalSince1970: 3)
+        note.isPinned = true
+        note.views = 5
+        note.body = "Keep this"
+    }
+    try store.create(CPNote.self) { note in
+        note.title = "Draft"
+        note.createdAt = Date(timeIntervalSince1970: 1)
+        note.isPinned = false
+        note.views = 0
+    }
+    try store.create(CPNote.self) { note in
+        note.title = "Inbox"
+        note.createdAt = Date(timeIntervalSince1970: 2)
+        note.isPinned = false
+        note.views = 2
+    }
+}
+
 final class PersistentStoreTests: XCTestCase {
-    @MainActor
-    private func makeStore() throws -> PersistentStore {
-        try PersistentStore(
-            modelName: "CorePersistTests",
-            model: TestModel.make(),
-            configuration: .preview
-        )
-    }
-
-    @MainActor
-    private func makeSQLiteStore() throws -> (PersistentStore, URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CorePersistTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = try PersistentStore(
-            modelName: "CorePersistTests",
-            model: TestModel.make(),
-            configuration: Configuration(storeName: "notes.sqlite", storeDirectory: directory)
-        )
-        return (store, directory)
-    }
-
     func testCreateFetchAndSave() async throws {
         try await MainActor.run {
             let store = try makeStore()
@@ -219,29 +242,6 @@ final class PersistentStoreTests: XCTestCase {
             ) { error in
                 XCTAssertEqual(error as? PersistenceError, .modelNotFound("DoesNotExist"))
             }
-        }
-    }
-
-    @MainActor
-    private func insertNotes(into store: PersistentStore) throws {
-        try store.create(CPNote.self) { note in
-            note.title = "Pinned"
-            note.createdAt = Date(timeIntervalSince1970: 3)
-            note.isPinned = true
-            note.views = 5
-            note.body = "Keep this"
-        }
-        try store.create(CPNote.self) { note in
-            note.title = "Draft"
-            note.createdAt = Date(timeIntervalSince1970: 1)
-            note.isPinned = false
-            note.views = 0
-        }
-        try store.create(CPNote.self) { note in
-            note.title = "Inbox"
-            note.createdAt = Date(timeIntervalSince1970: 2)
-            note.isPinned = false
-            note.views = 2
         }
     }
 }
