@@ -20,7 +20,7 @@ final class PersistentStoreTests: XCTestCase {
         let store = try PersistentStore(
             modelName: "CorePersistTests",
             model: TestModel.make(),
-            configuration: Configuration(storeDirectory: directory, storeName: "notes.sqlite")
+            configuration: Configuration(storeName: "notes.sqlite", storeDirectory: directory)
         )
         return (store, directory)
     }
